@@ -164,6 +164,7 @@ export interface AuditLog {
   entityType: string;
   entityId: string;
   details?: string;
+  metadata?: string;
   ipAddress?: string;
   createdAt: string;
 }

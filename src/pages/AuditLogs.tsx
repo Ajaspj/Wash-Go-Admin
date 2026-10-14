@@ -164,7 +164,7 @@ export const AuditLogs: React.FC = () => {
 
                       <td style={{ maxWidth: '300px' }}>
                         <div style={{ fontSize: '12px', color: '#475569', wordBreak: 'break-word' }}>
-                          {log.details || '—'}
+                          {log.metadata || log.details || '—'}
                         </div>
                       </td>
 
