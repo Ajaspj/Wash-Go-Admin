@@ -9,15 +9,31 @@ export const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [dismissedExpired, setDismissedExpired] = useState(false);
 
-  const { login } = useAuth();
+  const { login, error: authError, clearError } = useAuth();
   const { error: toastError, success } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
   const isExpired = searchParams.get('expired') === 'true';
+  const showExpired = isExpired && !dismissedExpired;
   const from = (location.state as any)?.from?.pathname || '/';
+
+  const handleEmailChange = (val: string) => {
+    setEmail(val);
+    if (localError) setLocalError(null);
+    if (authError) clearError();
+    if (!dismissedExpired && isExpired) setDismissedExpired(true);
+  };
+
+  const handlePasswordChange = (val: string) => {
+    setPassword(val);
+    if (localError) setLocalError(null);
+    if (authError) clearError();
+    if (!dismissedExpired && isExpired) setDismissedExpired(true);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,6 +44,8 @@ export const Login: React.FC = () => {
 
     setSubmitting(true);
     setLocalError(null);
+    if (authError) clearError();
+    if (!dismissedExpired && isExpired) setDismissedExpired(true);
 
     try {
       const profile = await login(email.trim(), password);
@@ -93,7 +111,7 @@ export const Login: React.FC = () => {
         </div>
 
         {/* Session Expired Notice */}
-        {isExpired && (
+        {showExpired && (
           <div
             style={{
               display: 'flex',
@@ -114,7 +132,7 @@ export const Login: React.FC = () => {
         )}
 
         {/* Error Alert */}
-        {localError && (
+        {(localError || authError) && (
           <div
             style={{
               display: 'flex',
@@ -130,7 +148,7 @@ export const Login: React.FC = () => {
             }}
           >
             <AlertTriangle size={18} style={{ flexShrink: 0 }} />
-            <span>{localError}</span>
+            <span>{localError || authError}</span>
           </div>
         )}
 
@@ -155,7 +173,7 @@ export const Login: React.FC = () => {
                 type="email"
                 required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => handleEmailChange(e.target.value)}
                 placeholder="admin@washgo.com"
                 className="form-input"
                 style={{
@@ -187,7 +205,7 @@ export const Login: React.FC = () => {
                 type="password"
                 required
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => handlePasswordChange(e.target.value)}
                 placeholder="••••••••••••"
                 className="form-input"
                 style={{

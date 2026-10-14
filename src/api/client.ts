@@ -16,21 +16,72 @@ import {
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://wash-go-api.onrender.com').replace(/\/+$/, '');
 
+export interface JwtClaims {
+  sub?: string;
+  role?: string;
+  userId?: string;
+  exp?: number;
+  iat?: number;
+  [key: string]: unknown;
+}
+
+export function parseJwtClaims(token: string): JwtClaims | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = parts[1];
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
+  } catch {
+    return null;
+  }
+}
+
+export function isTokenExpired(token: string | null, bufferSeconds = 10): boolean {
+  if (!token) return true;
+  const claims = parseJwtClaims(token);
+  if (!claims || !claims.exp) return true;
+  return Date.now() >= (claims.exp * 1000) - (bufferSeconds * 1000);
+}
+
 // Safer in-memory token state with sessionStorage session-only fallback
-let memoryToken: string | null = sessionStorage.getItem('washgo_admin_token');
+let memoryToken: string | null = null;
+try {
+  memoryToken = sessionStorage.getItem('washgo_admin_token');
+} catch {
+  memoryToken = null;
+}
 
 export const setAuthToken = (token: string | null) => {
   memoryToken = token;
-  if (token) {
-    sessionStorage.setItem('washgo_admin_token', token);
-  } else {
-    sessionStorage.removeItem('washgo_admin_token');
+  try {
+    if (token) {
+      sessionStorage.setItem('washgo_admin_token', token);
+    } else {
+      sessionStorage.removeItem('washgo_admin_token');
+    }
+  } catch {
+    // Ignore storage errors in restricted contexts
   }
 };
 
 export const getAuthToken = (): string | null => {
   if (!memoryToken) {
-    memoryToken = sessionStorage.getItem('washgo_admin_token');
+    try {
+      memoryToken = sessionStorage.getItem('washgo_admin_token');
+    } catch {
+      memoryToken = null;
+    }
+  }
+  if (memoryToken && isTokenExpired(memoryToken)) {
+    setAuthToken(null);
+    return null;
   }
   return memoryToken;
 };
@@ -60,17 +111,18 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
-
-  if (response.status === 401) {
-    setAuthToken(null);
-    if (!window.location.pathname.includes('/login')) {
-      window.location.href = '/login?expired=true';
-    }
-    throw new ApiError(401, 'UNAUTHORIZED', 'Session expired. Please log in again.');
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers,
+    });
+  } catch (netErr: any) {
+    throw new ApiError(
+      0,
+      'NETWORK_ERROR',
+      `Unable to connect to the backend server (${API_BASE_URL}). Please verify your network connection or backend availability.`
+    );
   }
 
   if (response.status === 204) {
@@ -80,10 +132,30 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   let body: any;
   const contentType = response.headers.get('content-type');
   if (contentType && contentType.includes('application/json')) {
-    body = await response.json();
+    try {
+      body = await response.json();
+    } catch {
+      body = null;
+    }
   } else {
     const text = await response.text();
-    body = { data: text };
+    body = text ? { message: text } : null;
+  }
+
+  if (response.status === 401) {
+    // If authenticating at /api/v1/auth/login, 401 is bad credentials, NOT an expired session
+    if (endpoint.includes('/api/v1/auth/login')) {
+      const errorCode = body?.code || 'AUTHENTICATION_FAILED';
+      const errorMessage = body?.message || 'Invalid email or password. Please verify your credentials.';
+      throw new ApiError(401, errorCode, errorMessage, body?.fieldErrors);
+    }
+
+    // On protected endpoints, 401 indicates genuine session expiry / invalid token
+    setAuthToken(null);
+    if (typeof window !== 'undefined' && window.location && !window.location.pathname.includes('/login')) {
+      window.location.href = '/login?expired=true';
+    }
+    throw new ApiError(401, 'UNAUTHORIZED', 'Session expired. Please log in again.');
   }
 
   if (!response.ok) {

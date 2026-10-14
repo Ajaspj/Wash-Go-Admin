@@ -6,9 +6,11 @@ interface AuthContextType {
   user: UserProfile | null;
   token: string | null;
   isLoading: boolean;
+  isNetworkError: boolean;
   error: string | null;
   login: (email: string, password: string) => Promise<UserProfile>;
   logout: () => Promise<void>;
+  retryAuth: () => Promise<UserProfile | null>;
   clearError: () => void;
 }
 
@@ -18,25 +20,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserProfile | null>(null);
   const [token, setToken] = useState<string | null>(getAuthToken());
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isNetworkError, setIsNetworkError] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchProfile = useCallback(async () => {
+  const fetchProfile = useCallback(async (): Promise<UserProfile | null> => {
+    setIsLoading(true);
     try {
       const profile = await api.auth.me();
       if (profile.role !== 'ADMIN') {
         setAuthToken(null);
         setToken(null);
         setUser(null);
-        setError('Access Denied: Your account does not have administrator privileges.');
+        setError(`Access Denied: Account with role "${profile.role}" does not have administrator privileges.`);
+        setIsNetworkError(false);
         return null;
       }
       setUser(profile);
       setError(null);
+      setIsNetworkError(false);
       return profile;
     } catch (err: any) {
-      setAuthToken(null);
-      setToken(null);
-      setUser(null);
+      if (err instanceof ApiError && err.status === 401) {
+        // Authoritative token expiration or invalid session
+        setAuthToken(null);
+        setToken(null);
+        setUser(null);
+        setError(null);
+        setIsNetworkError(false);
+      } else if (err instanceof ApiError && err.status === 403) {
+        // Authoritative access denial
+        setAuthToken(null);
+        setToken(null);
+        setUser(null);
+        setError(err.message || 'Access Denied: Administrator privileges required.');
+        setIsNetworkError(false);
+      } else {
+        // Network error (status 0) or 5xx server glitch:
+        // PRESERVE the token so the session is not destroyed by a temporary connection drop
+        setIsNetworkError(true);
+        setError(err?.message || 'Unable to connect to backend server. Retrying may resolve the issue.');
+      }
       return null;
     } finally {
       setIsLoading(false);
@@ -44,7 +67,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    if (getAuthToken()) {
+    const currentToken = getAuthToken();
+    if (currentToken) {
+      setToken(currentToken);
       fetchProfile();
     } else {
       setIsLoading(false);
@@ -54,6 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, password: string): Promise<UserProfile> => {
     setIsLoading(true);
     setError(null);
+    setIsNetworkError(false);
     try {
       const authResp = await api.auth.login(email, password);
       setToken(authResp.accessToken);
@@ -64,7 +90,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setAuthToken(null);
         setToken(null);
         setUser(null);
-        throw new ApiError(403, 'ACCESS_DENIED', 'Access Denied: Only administrators may access this portal.');
+        throw new ApiError(
+          403,
+          'ACCESS_DENIED',
+          `Access Denied: Account with role "${profile.role}" does not have administrator privileges.`
+        );
       }
 
       setUser(profile);
@@ -89,6 +119,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(null);
       setUser(null);
       setError(null);
+      setIsNetworkError(false);
     }
   };
 
@@ -96,9 +127,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     token,
     isLoading,
+    isNetworkError,
     error,
     login,
     logout,
+    retryAuth: fetchProfile,
     clearError: () => setError(null),
   };
 
