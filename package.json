@@ -1,0 +1,32 @@
+{
+  "name": "wash-go-admin",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "test": "vitest run",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "happy-dom": "^21.0.1",
+    "jsdom": "^27.0.1",
+    "typescript": "~6.0.2",
+    "vite": "^6.4.4",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.104.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.57.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4"
+  }
+}

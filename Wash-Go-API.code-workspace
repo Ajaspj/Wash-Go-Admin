@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../Wash-Go-API"
+		},
+		{
+			"path": "../Wash-Go-App"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {}
+}
