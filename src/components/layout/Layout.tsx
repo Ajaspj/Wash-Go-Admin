@@ -7,7 +7,7 @@ import { setAuthToken } from '../../api/client';
 import { Sparkles, AlertTriangle, RefreshCw, LogIn } from 'lucide-react';
 
 export const Layout: React.FC = () => {
-  const { user, token, isLoading, isNetworkError, error, retryAuth } = useAuth();
+  const { user, token, isLoading, isNetworkError, error, retryAuth, isAuthenticated } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const location = useLocation();
@@ -150,7 +150,11 @@ export const Layout: React.FC = () => {
     );
   }
 
-  if (!user || user.role !== 'ADMIN') {
+  if (user && user.role !== 'ADMIN') {
+    return <Navigate to="/access-denied" replace />;
+  }
+
+  if (!isAuthenticated || !user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { getApiBaseUrl } from '../api/client';
 import {
   Settings as SettingsIcon,
   Server,
@@ -22,15 +23,18 @@ export const Settings: React.FC = () => {
   const [latency, setLatency] = useState<number | null>(null);
   const [apiStatus, setApiStatus] = useState<'IDLE' | 'HEALTHY' | 'ERROR'>('IDLE');
 
-  const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || 'https://wash-go-api.onrender.com').replace(/\/+$/, '');
+  const apiBaseUrl = getApiBaseUrl();
 
   const testApiHealth = async () => {
     setTestingConnection(true);
     setApiStatus('IDLE');
     const start = performance.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     try {
       const resp = await fetch(`${apiBaseUrl}/actuator/health`, {
         headers: { Accept: 'application/json' },
+        signal: controller.signal,
       });
       const end = performance.now();
       setLatency(Math.round(end - start));
@@ -43,8 +47,9 @@ export const Settings: React.FC = () => {
       }
     } catch (err: any) {
       setApiStatus('ERROR');
-      toastError(`API connection failed: ${err?.message || 'Network error'}`);
+      toastError(err?.name === 'AbortError' ? 'API connection timed out after 10s' : 'Failed to reach API server');
     } finally {
+      clearTimeout(timeoutId);
       setTestingConnection(false);
     }
   };

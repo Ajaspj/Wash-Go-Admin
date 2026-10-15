@@ -5,6 +5,7 @@ import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { Layout } from './components/layout/Layout';
 import { Login } from './pages/Login';
+import { AccessDenied } from './pages/AccessDenied';
 import { Dashboard } from './pages/Dashboard';
 import { Applications } from './pages/Applications';
 import { KycVerification } from './pages/KycVerification';
@@ -31,8 +32,9 @@ export const App: React.FC = () => {
         <AuthProvider>
           <BrowserRouter>
             <Routes>
-              {/* Public Authentication Route */}
+              {/* Public Authentication Routes */}
               <Route path="/login" element={<Login />} />
+              <Route path="/access-denied" element={<AccessDenied />} />
 
               {/* Protected Administration Shell */}
               <Route path="/" element={<Layout />}>

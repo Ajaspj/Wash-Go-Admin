@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -11,7 +11,7 @@ export const Login: React.FC = () => {
   const [localError, setLocalError] = useState<string | null>(null);
   const [dismissedExpired, setDismissedExpired] = useState(false);
 
-  const { login, error: authError, clearError } = useAuth();
+  const { login, error: authError, clearError, isInitializing, isAuthenticated, user } = useAuth();
   const { error: toastError, success } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -20,6 +20,13 @@ export const Login: React.FC = () => {
   const isExpired = searchParams.get('expired') === 'true';
   const showExpired = isExpired && !dismissedExpired;
   const from = (location.state as any)?.from?.pathname || '/';
+
+  // Redirect to target or dashboard if already authenticated with ADMIN role and not explicitly redirected due to session expiration
+  useEffect(() => {
+    if (!isExpired && !isInitializing && isAuthenticated && user?.role === 'ADMIN') {
+      navigate(from, { replace: true });
+    }
+  }, [isExpired, isInitializing, isAuthenticated, user, navigate, from]);
 
   const handleEmailChange = (val: string) => {
     setEmail(val);
@@ -220,7 +227,7 @@ export const Login: React.FC = () => {
 
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || isInitializing}
             className="btn btn-primary"
             style={{
               width: '100%',
@@ -230,7 +237,12 @@ export const Login: React.FC = () => {
               borderRadius: '12px',
             }}
           >
-            {submitting ? (
+            {isInitializing ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                <span>Checking Session...</span>
+              </>
+            ) : submitting ? (
               <>
                 <Loader2 size={18} className="animate-spin" />
                 <span>Verifying Authorization...</span>

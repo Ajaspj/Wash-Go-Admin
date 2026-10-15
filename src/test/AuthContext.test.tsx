@@ -5,11 +5,25 @@ import { AuthProvider, useAuth } from '../context/AuthContext';
 import { api, setAuthToken, getAuthToken, ApiError } from '../api/client';
 
 const TestConsumer: React.FC = () => {
-  const { user, token, isLoading, isNetworkError, error, retryAuth, logout } = useAuth();
+  const {
+    user,
+    token,
+    status,
+    isLoading,
+    isInitializing,
+    isAuthenticated,
+    isNetworkError,
+    error,
+    retryAuth,
+    logout,
+  } = useAuth();
 
   return (
     <div>
+      <div data-testid="status">{status}</div>
       <div data-testid="loading">{String(isLoading)}</div>
+      <div data-testid="initializing">{String(isInitializing)}</div>
+      <div data-testid="authenticated">{String(isAuthenticated)}</div>
       <div data-testid="network-error">{String(isNetworkError)}</div>
       <div data-testid="error-msg">{error || ''}</div>
       <div data-testid="user-email">{user?.email || 'none'}</div>
@@ -130,7 +144,84 @@ describe('AuthContext Session Resilience & Network Failure Handling', () => {
 
     expect(screen.getByTestId('network-error').textContent).toBe('false');
     expect(screen.getByTestId('token-val').textContent).toBe('none');
+    expect(screen.getByTestId('status').textContent).toBe('UNAUTHENTICATED');
+    expect(screen.getByTestId('authenticated').textContent).toBe('false');
     expect(getAuthToken()).toBeNull();
     expect(sessionStorage.getItem('washgo_admin_token')).toBeNull();
+  });
+
+  it('starts immediately in UNAUTHENTICATED status when no token is present', () => {
+    render(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>
+    );
+
+    expect(screen.getByTestId('status').textContent).toBe('UNAUTHENTICATED');
+    expect(screen.getByTestId('loading').textContent).toBe('false');
+    expect(screen.getByTestId('initializing').textContent).toBe('false');
+    expect(screen.getByTestId('authenticated').textContent).toBe('false');
+  });
+
+  it('rejects session and clears token if profile role is not ADMIN', async () => {
+    const validExp = Math.floor(Date.now() / 1000) + 3600;
+    const payload = btoa(JSON.stringify({ sub: 'user@washgo.com', role: 'CUSTOMER', exp: validExp }));
+    const validToken = `h.${payload}.s`;
+
+    setAuthToken(validToken);
+
+    vi.spyOn(api.auth, 'me').mockResolvedValue({
+      id: 'cust-1',
+      name: 'Customer',
+      email: 'user@washgo.com',
+      role: 'CUSTOMER',
+      status: 'ACTIVE',
+    });
+
+    render(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loading').textContent).toBe('false');
+    });
+
+    expect(screen.getByTestId('status').textContent).toBe('UNAUTHENTICATED');
+    expect(screen.getByTestId('authenticated').textContent).toBe('false');
+    expect(screen.getByTestId('error-msg').textContent).toContain('Access Denied');
+    expect(getAuthToken()).toBeNull();
+  });
+
+  it('preserves authenticated session and status when authenticated admin is active', async () => {
+    const validExp = Math.floor(Date.now() / 1000) + 3600;
+    const payload = btoa(JSON.stringify({ sub: 'admin@washgo.com', role: 'ADMIN', exp: validExp }));
+    const validToken = `h.${payload}.s`;
+
+    setAuthToken(validToken);
+
+    vi.spyOn(api.auth, 'me').mockResolvedValue({
+      id: 'admin-id',
+      name: 'Operations Lead',
+      email: 'admin@washgo.com',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+    });
+
+    render(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('status').textContent).toBe('AUTHENTICATED');
+      expect(screen.getByTestId('authenticated').textContent).toBe('true');
+    });
+
+    // Token and user details remain intact
+    expect(screen.getByTestId('token-val').textContent).toBe(validToken);
+    expect(screen.getByTestId('user-email').textContent).toBe('admin@washgo.com');
   });
 });

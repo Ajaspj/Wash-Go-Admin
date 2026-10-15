@@ -14,6 +14,7 @@ import {
   XCircle,
   Eye,
   User,
+  RefreshCw,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { BookingResponse, BookingStatus } from '../api/types';
@@ -34,7 +35,7 @@ export const Bookings: React.FC = () => {
   const queryClient = useQueryClient();
   const { success, error: toastError } = useToast();
 
-  const { data: page, isLoading } = useQuery({
+  const { data: page, isLoading, error: bookingsError, refetch } = useQuery({
     queryKey: ['admin-bookings-list', statusFilter, searchRef, pageNumber],
     queryFn: () =>
       api.bookings.list({
@@ -254,6 +255,22 @@ export const Bookings: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        ) : bookingsError ? (
+          <div style={{ textAlign: 'center', padding: '48px 20px', color: '#64748B' }}>
+            <AlertTriangle size={40} style={{ margin: '0 auto 12px', color: '#EF4444' }} />
+            <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0F172A' }}>Unable to Load Bookings</h3>
+            <p style={{ fontSize: '13px', marginTop: '4px', maxWidth: '400px', margin: '4px auto 16px' }}>
+              {(bookingsError as any)?.message || 'The bookings service returned an error. Your session remains active.'}
+            </p>
+            <button
+              onClick={() => refetch()}
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <RefreshCw size={14} />
+              <span>Retry Bookings</span>
+            </button>
           </div>
         ) : (
           <div style={{ textAlign: 'center', padding: '48px 20px', color: '#64748B' }}>

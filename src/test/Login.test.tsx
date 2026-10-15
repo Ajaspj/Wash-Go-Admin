@@ -169,4 +169,49 @@ describe('Login Component & Session Flow', () => {
       expect(screen.getByText('Dashboard Home')).toBeInTheDocument();
     });
   });
+
+  it('automatically redirects away from /login if user is already authenticated with ADMIN role', async () => {
+    const validExp = Math.floor(Date.now() / 1000) + 3600;
+    const payload = btoa(JSON.stringify({ sub: 'admin@washgo.com', role: 'ADMIN', exp: validExp }));
+    const validToken = `h.${payload}.s`;
+
+    setAuthToken(validToken);
+
+    vi.spyOn(api.auth, 'me').mockResolvedValue({
+      id: 'admin-uuid',
+      name: 'Super Admin',
+      email: 'admin@washgo.com',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+    });
+
+    renderLogin();
+
+    await waitFor(() => {
+      expect(screen.getByText('Dashboard Home')).toBeInTheDocument();
+    });
+  });
+
+  it('does NOT automatically redirect away if visiting /login?expired=true', async () => {
+    const validExp = Math.floor(Date.now() / 1000) + 3600;
+    const payload = btoa(JSON.stringify({ sub: 'admin@washgo.com', role: 'ADMIN', exp: validExp }));
+    const validToken = `h.${payload}.s`;
+
+    setAuthToken(validToken);
+
+    vi.spyOn(api.auth, 'me').mockResolvedValue({
+      id: 'admin-uuid',
+      name: 'Super Admin',
+      email: 'admin@washgo.com',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+    });
+
+    renderLogin(['/login?expired=true']);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Your session has expired. Please sign in again./i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Dashboard Home')).not.toBeInTheDocument();
+  });
 });

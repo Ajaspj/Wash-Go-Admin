@@ -2,6 +2,7 @@ import React from 'react';
 import { Menu, LogOut, ShieldAlert, Globe } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { getApiBaseUrl } from '../../api/client';
 
 interface TopNavProps {
   onToggleSidebar: () => void;
@@ -16,7 +17,7 @@ export const TopNav: React.FC<TopNavProps> = ({ onToggleSidebar }) => {
     navigate('/login');
   };
 
-  const apiHost = (import.meta.env.VITE_API_BASE_URL || 'wash-go-api.onrender.com')
+  const apiHost = getApiBaseUrl()
     .replace(/^https?:\/\//, '')
     .replace(/\/+$/, '');
 

@@ -2,7 +2,9 @@
 
 Production-oriented administrative frontend for the Wash-Go on-demand vehicle wash and detailing platform. Built with React 19, TypeScript, Vite, TanStack Query, and Lucide React.
 
-Connected Live Backend: `https://wash-go-api.onrender.com/`
+Connected Backends:
+- **Staging Backend (Active Development)**: `https://wash-go-api-hsvt.onrender.com`
+- **Production Backend**: `https://wash-go-api.onrender.com`
 
 ---
 
@@ -76,13 +78,14 @@ Wash-Go-Admin/
 Configure environment variables in `.env.local`:
 
 ```env
-# Point to live deployed API or local development instance
-VITE_API_BASE_URL=https://wash-go-api.onrender.com
-```
+# Point to live staging backend (default for development and testing):
+VITE_API_BASE_URL=https://wash-go-api-hsvt.onrender.com
 
-For local backend development:
-```env
-VITE_API_BASE_URL=http://localhost:8080
+# Or point to local Spring Boot backend instance:
+# VITE_API_BASE_URL=http://localhost:8080
+
+# Or point to production backend:
+# VITE_API_BASE_URL=https://wash-go-api.onrender.com
 ```
 
 > **Security Note**: Never commit JWT secrets, database credentials, or admin passwords to frontend `.env` files. `VITE_` variables are bundled into client-side code and must only contain public URLs.

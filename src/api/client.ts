@@ -14,7 +14,16 @@ import {
   BookingStatus,
 } from './types';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://wash-go-api.onrender.com').replace(/\/+$/, '');
+export const getApiBaseUrl = (): string => {
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
+    return envUrl.trim().replace(/\/+$/, '');
+  }
+  const isDevOrTest = import.meta.env.DEV || import.meta.env.MODE === 'development' || import.meta.env.MODE === 'test';
+  return isDevOrTest
+    ? 'https://wash-go-api-hsvt.onrender.com'
+    : 'https://wash-go-api.onrender.com';
+};
 
 export interface JwtClaims {
   sub?: string;
@@ -30,7 +39,10 @@ export function parseJwtClaims(token: string): JwtClaims | null {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     const payload = parts[1];
-    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    let base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) {
+      base64 += '=';
+    }
     const jsonPayload = decodeURIComponent(
       atob(base64)
         .split('')
@@ -45,8 +57,13 @@ export function parseJwtClaims(token: string): JwtClaims | null {
 
 export function isTokenExpired(token: string | null, bufferSeconds = 10): boolean {
   if (!token) return true;
+  if (token.split('.').length !== 3) return true;
   const claims = parseJwtClaims(token);
-  if (!claims || !claims.exp) return true;
+  // If a 3-part JWT has no exp claim or cannot be decoded client-side,
+  // do not unilaterally assume expired and nuke it.
+  if (!claims || typeof claims.exp !== 'number') {
+    return false;
+  }
   return Date.now() >= (claims.exp * 1000) - (bufferSeconds * 1000);
 }
 
@@ -98,8 +115,14 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+export interface RequestOptions extends RequestInit {
+  timeoutMs?: number;
+}
+
+async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+  const baseUrl = getApiBaseUrl();
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = `${baseUrl}${cleanEndpoint}`;
   const headers = new Headers(options.headers || {});
 
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
@@ -111,18 +134,38 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers.set('Authorization', `Bearer ${token}`);
   }
 
+  const { timeoutMs = 20000, signal: customSignal, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort(new Error(`Request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  if (customSignal) {
+    customSignal.addEventListener('abort', () => controller.abort(customSignal.reason));
+  }
+
   let response: Response;
   try {
     response = await fetch(url, {
-      ...options,
+      ...fetchOptions,
       headers,
+      signal: controller.signal,
     });
   } catch (netErr: any) {
+    if (netErr?.name === 'AbortError' || controller.signal.aborted) {
+      throw new ApiError(
+        0,
+        'TIMEOUT_ERROR',
+        `The request to backend (${baseUrl}) timed out after ${Math.round(timeoutMs / 1000)}s. Please check backend availability or retry.`
+      );
+    }
     throw new ApiError(
       0,
       'NETWORK_ERROR',
-      `Unable to connect to the backend server (${API_BASE_URL}). Please verify your network connection or backend availability.`
+      `Unable to connect to the backend server (${baseUrl}). Please verify your network connection or backend availability.`
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (response.status === 204) {
@@ -143,29 +186,74 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   if (response.status === 401) {
-    // If authenticating at /api/v1/auth/login, 401 is bad credentials, NOT an expired session
+    // 1. If authenticating at /api/v1/auth/login, 401 is bad credentials, NOT an expired session
     if (endpoint.includes('/api/v1/auth/login')) {
       const errorCode = body?.code || 'AUTHENTICATION_FAILED';
       const errorMessage = body?.message || 'Invalid email or password. Please verify your credentials.';
       throw new ApiError(401, errorCode, errorMessage, body?.fieldErrors);
     }
 
-    // On protected endpoints, 401 indicates genuine session expiry / invalid token
-    setAuthToken(null);
-    if (typeof window !== 'undefined' && window.location && !window.location.pathname.includes('/login')) {
-      window.location.href = '/login?expired=true';
+    // 2. Only if the authoritative profile endpoint (/api/v1/users/me) returns 401,
+    // does it signify that the session token is truly revoked or expired.
+    if (endpoint.includes('/api/v1/users/me')) {
+      setAuthToken(null);
+      throw new ApiError(401, 'UNAUTHORIZED', 'Session expired. Please log in again.');
     }
-    throw new ApiError(401, 'UNAUTHORIZED', 'Session expired. Please log in again.');
+
+    // 3. For any other endpoint (such as dashboard data queries, /api/v1/admin/bookings, etc.),
+    // a 401 must NOT nuke the valid session token or trigger a hard window.location reload loop.
+    // Throw ApiError so TanStack Query / UI error boundary can handle it locally.
+    const errorCode = body?.code || 'UNAUTHORIZED';
+    const errorMessage = body?.message || 'Unauthorized access to this resource.';
+    throw new ApiError(401, errorCode, errorMessage, body?.fieldErrors);
+  }
+
+  if (response.status === 403) {
+    const errorCode = body?.code || 'FORBIDDEN';
+    const errorMessage = body?.message || 'Access Denied: Administrator privileges required.';
+    throw new ApiError(403, errorCode, errorMessage, body?.fieldErrors);
   }
 
   if (!response.ok) {
-    const errorCode = body?.code || (response.status === 403 ? 'FORBIDDEN' : 'API_ERROR');
+    const errorCode = body?.code || 'API_ERROR';
     const errorMessage = body?.message || `Request failed with status ${response.status}`;
     throw new ApiError(response.status, errorCode, errorMessage, body?.fieldErrors);
   }
 
   // Handle ApiResponse<T> envelope or bare payload
   return (body && typeof body === 'object' && 'data' in body) ? body.data : body;
+}
+
+function normalizeBooking(b: any): BookingResponse {
+  if (!b) return b;
+  const customerName =
+    b.customerName ||
+    (b.customer ? `${b.customer.firstName || ''} ${b.customer.lastName || ''}`.trim() : '') ||
+    'Customer';
+  const customerPhone = b.customerPhone || b.customer?.phone || '';
+  const vehicleMake = b.vehicleMake || b.vehicle?.make || 'Vehicle';
+  const vehicleModel = b.vehicleModel || b.vehicle?.model || '';
+  const vehiclePlate = b.vehiclePlate || b.vehicle?.registrationNumber || '';
+  const serviceName = b.serviceName || b.service?.name || b.serviceNameSnapshot || 'Mobile Wash';
+  const agentName = b.agentName || b.assignedStaff?.displayName || null;
+  const city = b.city || b.serviceAddress?.city || null;
+  const addressLine = b.addressLine || b.serviceAddress?.addressLine1 || null;
+
+  return {
+    ...b,
+    customerId: b.customerId || b.customer?.id || '',
+    customerName,
+    customerPhone,
+    vehicleId: b.vehicleId || b.vehicle?.id || '',
+    vehicleMake,
+    vehicleModel,
+    vehiclePlate,
+    serviceId: b.serviceId || b.service?.id || '',
+    serviceName,
+    agentName,
+    city,
+    addressLine,
+  };
 }
 
 export const api = {
@@ -268,14 +356,28 @@ export const api = {
     },
 
     download: async (documentId: string): Promise<Blob> => {
+      const baseUrl = getApiBaseUrl();
       const token = getAuthToken();
-      const response = await fetch(`${API_BASE_URL}/api/v1/admin/documents/${documentId}/download`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!response.ok) {
-        throw new ApiError(response.status, 'DOWNLOAD_FAILED', 'Failed to securely download document');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      try {
+        const response = await fetch(`${baseUrl}/api/v1/admin/documents/${documentId}/download`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new ApiError(response.status, 'DOWNLOAD_FAILED', 'Failed to securely download document');
+        }
+        return await response.blob();
+      } catch (err: any) {
+        if (err?.name === 'AbortError' || controller.signal.aborted) {
+          throw new ApiError(0, 'TIMEOUT_ERROR', 'Document download timed out. Please retry.');
+        }
+        if (err instanceof ApiError) throw err;
+        throw new ApiError(0, 'NETWORK_ERROR', 'Network failure while downloading document.');
+      } finally {
+        clearTimeout(timeoutId);
       }
-      return response.blob();
     },
   },
 
@@ -292,20 +394,28 @@ export const api = {
       if (params.bookingReference) searchParams.append('bookingReference', params.bookingReference);
       searchParams.append('page', String(params.page ?? 0));
       searchParams.append('size', String(params.size ?? 15));
-      searchParams.append('sort', 'createdAt,desc');
 
-      return request<Page<BookingResponse>>(`/api/v1/admin/bookings?${searchParams.toString()}`);
+      const res = await request<Page<any>>(`/api/v1/admin/bookings?${searchParams.toString()}`);
+      if (res && Array.isArray(res.content)) {
+        return {
+          ...res,
+          content: res.content.map(normalizeBooking),
+        };
+      }
+      return res as Page<BookingResponse>;
     },
 
     get: async (id: string): Promise<BookingResponse> => {
-      return request<BookingResponse>(`/api/v1/admin/bookings/${id}`);
+      const res = await request<any>(`/api/v1/admin/bookings/${id}`);
+      return normalizeBooking(res);
     },
 
     cancel: async (id: string, reason: string): Promise<BookingResponse> => {
-      return request<BookingResponse>(`/api/v1/admin/bookings/${id}/cancel`, {
+      const res = await request<any>(`/api/v1/admin/bookings/${id}/cancel`, {
         method: 'POST',
         body: JSON.stringify({ reason }),
       });
+      return normalizeBooking(res);
     },
   },
 

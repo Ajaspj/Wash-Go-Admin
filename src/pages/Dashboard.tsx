@@ -49,6 +49,7 @@ export const Dashboard: React.FC = () => {
   const {
     data: recentBookingsPage,
     isLoading: bookingsLoading,
+    error: bookingsError,
     refetch: refetchBookings,
   } = useQuery({
     queryKey: ['admin-recent-bookings'],
@@ -300,6 +301,22 @@ export const Dashboard: React.FC = () => {
 
           {bookingsLoading ? (
             <TableSkeleton rows={4} columns={3} />
+          ) : bookingsError ? (
+            <div style={{ textAlign: 'center', padding: '32px 16px', color: '#64748B' }}>
+              <AlertCircle size={32} style={{ margin: '0 auto 8px', color: '#EF4444' }} />
+              <p style={{ fontWeight: 600, color: '#0F172A', fontSize: '14px' }}>Unable to load live bookings</p>
+              <p style={{ fontSize: '12px', color: '#64748B', marginTop: '4px', maxWidth: '320px', margin: '4px auto 12px' }}>
+                {(bookingsError as any)?.message || 'The bookings service returned an error.'}
+              </p>
+              <button
+                onClick={() => refetchBookings()}
+                className="btn btn-secondary btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <RefreshCw size={13} />
+                <span>Retry</span>
+              </button>
+            </div>
           ) : recentBookingsPage?.content && recentBookingsPage.content.length > 0 ? (
             <div className="table-container">
               <table className="data-table">
