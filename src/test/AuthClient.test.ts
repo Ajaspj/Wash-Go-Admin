@@ -5,6 +5,7 @@ import {
   getAuthToken,
   setAuthToken,
   getApiBaseUrl,
+  buildApiUrl,
   ApiError,
   api,
 } from '../api/client';
@@ -173,6 +174,9 @@ describe('Auth Client & JWT Utilities', () => {
     const url = getApiBaseUrl();
     expect(url).toBeDefined();
     expect(url.endsWith('/')).toBe(false);
+
+    const loginUrl = buildApiUrl('/api/v1/auth/login');
+    expect(loginUrl).toBe(`${url}/api/v1/auth/login`);
   });
 
   it('correctly decodes unpadded base64url JWT tokens', () => {

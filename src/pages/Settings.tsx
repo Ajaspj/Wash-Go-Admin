@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { getApiBaseUrl } from '../api/client';
+import { getApiBaseUrl, buildApiUrl } from '../api/client';
 import {
   Settings as SettingsIcon,
   Server,
@@ -23,7 +23,13 @@ export const Settings: React.FC = () => {
   const [latency, setLatency] = useState<number | null>(null);
   const [apiStatus, setApiStatus] = useState<'IDLE' | 'HEALTHY' | 'ERROR'>('IDLE');
 
-  const apiBaseUrl = getApiBaseUrl();
+  const apiBaseUrl = (() => {
+    try {
+      return getApiBaseUrl();
+    } catch (err: any) {
+      return err?.message || 'Configuration Error';
+    }
+  })();
 
   const testApiHealth = async () => {
     setTestingConnection(true);
@@ -32,7 +38,8 @@ export const Settings: React.FC = () => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
     try {
-      const resp = await fetch(`${apiBaseUrl}/actuator/health`, {
+      const healthUrl = buildApiUrl('/actuator/health');
+      const resp = await fetch(healthUrl, {
         headers: { Accept: 'application/json' },
         signal: controller.signal,
       });

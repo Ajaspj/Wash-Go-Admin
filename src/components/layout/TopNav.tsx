@@ -17,9 +17,15 @@ export const TopNav: React.FC<TopNavProps> = ({ onToggleSidebar }) => {
     navigate('/login');
   };
 
-  const apiHost = getApiBaseUrl()
-    .replace(/^https?:\/\//, '')
-    .replace(/\/+$/, '');
+  const apiHost = (() => {
+    try {
+      return getApiBaseUrl()
+        .replace(/^https?:\/\//, '')
+        .replace(/\/+$/, '');
+    } catch {
+      return 'Configuration Error';
+    }
+  })();
 
   return (
     <header

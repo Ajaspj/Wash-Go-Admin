@@ -14,15 +14,52 @@ import {
   BookingStatus,
 } from './types';
 
+/**
+ * Centralized API base URL resolver.
+ *
+ * Reads import.meta.env.VITE_API_URL (configured on Render Static Site dashboard)
+ * and falls back to import.meta.env.VITE_API_BASE_URL for backward compatibility.
+ * Normalizes trailing slashes safely and removes accidental duplicate /api or /api/v1 suffixes.
+ * Validates protocol and URL structure.
+ *
+ * Does NOT silently fall back to production if the environment variable is missing or invalid;
+ * instead, throws a descriptive Error so configuration mistakes are caught immediately.
+ */
 export const getApiBaseUrl = (): string => {
-  const envUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
-    return envUrl.trim().replace(/\/+$/, '');
+  const envUrl = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL) as string | undefined;
+
+  if (!envUrl || typeof envUrl !== 'string' || envUrl.trim().length === 0) {
+    throw new Error(
+      'Missing API configuration: VITE_API_URL (or VITE_API_BASE_URL) is not defined. ' +
+      'Please set VITE_API_URL in your environment or .env file (e.g. VITE_API_URL=https://wash-go-api-hsvt.onrender.com).'
+    );
   }
-  const isDevOrTest = import.meta.env.DEV || import.meta.env.MODE === 'development' || import.meta.env.MODE === 'test';
-  return isDevOrTest
-    ? 'https://wash-go-api-hsvt.onrender.com'
-    : 'https://wash-go-api.onrender.com';
+
+  const trimmed = envUrl.trim().replace(/\/+$/, '');
+  const sanitized = trimmed.replace(/\/api\/v1\/?$/, '').replace(/\/api\/?$/, '');
+
+  try {
+    const parsed = new URL(sanitized);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new Error(`Unsupported protocol "${parsed.protocol}"`);
+    }
+  } catch {
+    throw new Error(
+      `Invalid API URL configuration: "${envUrl}". Expected a valid absolute HTTP or HTTPS URL (e.g. https://wash-go-api-hsvt.onrender.com).`
+    );
+  }
+
+  return sanitized;
+};
+
+/**
+ * Builds a normalized, fully-qualified URL for a given API endpoint path.
+ * Ensures the login endpoint resolves to /api/v1/auth/login without duplicated or missing path segments.
+ */
+export const buildApiUrl = (endpoint: string): string => {
+  const baseUrl = getApiBaseUrl();
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${baseUrl}${cleanEndpoint}`;
 };
 
 export interface JwtClaims {
@@ -120,9 +157,8 @@ export interface RequestOptions extends RequestInit {
 }
 
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+  const url = buildApiUrl(endpoint);
   const baseUrl = getApiBaseUrl();
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  const url = `${baseUrl}${cleanEndpoint}`;
   const headers = new Headers(options.headers || {});
 
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
@@ -356,12 +392,13 @@ export const api = {
     },
 
     download: async (documentId: string): Promise<Blob> => {
+      const url = buildApiUrl(`/api/v1/admin/documents/${documentId}/download`);
       const baseUrl = getApiBaseUrl();
       const token = getAuthToken();
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 20000);
       try {
-        const response = await fetch(`${baseUrl}/api/v1/admin/documents/${documentId}/download`, {
+        const response = await fetch(url, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
           signal: controller.signal,
         });

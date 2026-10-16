@@ -78,13 +78,16 @@ Wash-Go-Admin/
 Configure environment variables in `.env.local`:
 
 ```env
-# Point to live staging backend (default for development and testing):
+# Point to live staging backend (default for staging deployment and development):
+VITE_API_URL=https://wash-go-api-hsvt.onrender.com
 VITE_API_BASE_URL=https://wash-go-api-hsvt.onrender.com
 
 # Or point to local Spring Boot backend instance:
+# VITE_API_URL=http://localhost:8080
 # VITE_API_BASE_URL=http://localhost:8080
 
-# Or point to production backend:
+# Or point to production backend (for production deployment only):
+# VITE_API_URL=https://wash-go-api.onrender.com
 # VITE_API_BASE_URL=https://wash-go-api.onrender.com
 ```
 
